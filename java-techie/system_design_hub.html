@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Design Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0f1c;
+    --panel:#111a2e;
+    --panel-hover:#152142;
+    --border:#1f2c47;
+    --border-soft:#182338;
+    --text:#e8edf7;
+    --muted:#7d8bab;
+    --muted-dim:#516080;
+    --teal:#4fd1c5;
+    --teal-dim:rgba(79,209,197,0.12);
+    --amber:#f2b84b;
+    --amber-dim:rgba(242,184,75,0.12);
+  }
+
+  *{box-sizing:border-box;}
+  html{-webkit-font-smoothing:antialiased;}
+  body{
+    margin:0;
+    min-height:100vh;
+    background:
+      radial-gradient(circle at 1px 1px, rgba(79,209,197,0.10) 1px, transparent 0) 0 0/28px 28px,
+      var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    padding:56px 24px 80px;
+  }
+
+  .wrap{max-width:1040px;margin:0 auto;}
+
+  /* ---------- Header ---------- */
+  .eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    letter-spacing:0.14em;
+    color:var(--teal);
+    text-transform:uppercase;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-bottom:14px;
+  }
+  .eyebrow::before{
+    content:'';
+    width:6px;height:6px;border-radius:50%;
+    background:var(--teal);
+    box-shadow:0 0 0 3px var(--teal-dim);
+  }
+  h1{
+    font-family:'JetBrains Mono',monospace;
+    font-weight:700;
+    font-size:clamp(28px,4vw,40px);
+    margin:0 0 10px;
+    letter-spacing:-0.01em;
+  }
+  .subtitle{
+    color:var(--muted);
+    font-size:15px;
+    max-width:560px;
+    line-height:1.55;
+    margin:0 0 40px;
+  }
+  .subtitle strong{color:var(--text);font-weight:600;}
+
+  /* ---------- Add bar ---------- */
+  .add-panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:18px;
+    margin-bottom:36px;
+  }
+  .add-row{
+    display:grid;
+    grid-template-columns:1.4fr 1fr auto;
+    gap:10px;
+  }
+  @media (max-width:680px){
+    .add-row{grid-template-columns:1fr;}
+  }
+  .field{display:flex;flex-direction:column;gap:6px;}
+  .field label{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--muted-dim);
+  }
+  input[type="text"], input[type="url"]{
+    background:#0d1526;
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:11px 12px;
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    font-size:14px;
+    outline:none;
+    width:100%;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  input::placeholder{color:var(--muted-dim);}
+  input:focus{
+    border-color:var(--teal);
+    box-shadow:0 0 0 3px var(--teal-dim);
+  }
+  input.field-warn{
+    border-color:var(--amber);
+    box-shadow:0 0 0 3px var(--amber-dim);
+  }
+  .btn-add{
+    align-self:end;
+    background:var(--teal);
+    color:#04211d;
+    border:none;
+    border-radius:8px;
+    padding:11px 22px;
+    font-family:'JetBrains Mono',monospace;
+    font-weight:600;
+    font-size:13px;
+    letter-spacing:0.02em;
+    cursor:pointer;
+    white-space:nowrap;
+    transition:filter .15s ease, transform .1s ease;
+    display:flex;align-items:center;justify-content:center;gap:8px;
+  }
+  .btn-add:hover{filter:brightness(1.08);}
+  .btn-add:active{transform:scale(0.98);}
+  .btn-add:disabled{opacity:0.55;cursor:not-allowed;}
+
+  .helper-text{
+    font-size:12.5px;
+    margin-top:10px;
+    min-height:16px;
+    color:var(--muted-dim);
+  }
+  .helper-text.warn{color:var(--amber);}
+  .helper-text.error{color:#e5877a;}
+
+  .spinner{
+    width:13px;height:13px;
+    border-radius:50%;
+    border:2px solid rgba(4,33,29,0.3);
+    border-top-color:#04211d;
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* ---------- Toolbar: search + count ---------- */
+  .toolbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    margin-bottom:18px;
+  }
+  .count{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12.5px;
+    color:var(--muted);
+    white-space:nowrap;
+  }
+  .count strong{color:var(--text);}
+  .search-wrap{position:relative;flex:1;max-width:280px;}
+  .search-wrap input{padding-left:34px;}
+  .search-icon{
+    position:absolute;left:11px;top:50%;transform:translateY(-50%);
+    width:14px;height:14px;color:var(--muted-dim);pointer-events:none;
+  }
+
+  /* ---------- Grid ---------- */
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));
+    gap:14px;
+  }
+
+  .card{
+    position:relative;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:18px 18px 16px;
+    text-decoration:none;
+    color:inherit;
+    display:block;
+    transition:border-color .15s ease, background .15s ease, transform .12s ease;
+    overflow:hidden;
+  }
+  .card::before{
+    content:'';
+    position:absolute;top:0;left:0;
+    width:22px;height:22px;
+    border-top:2px solid var(--teal);
+    border-left:2px solid var(--teal);
+    border-top-left-radius:12px;
+    opacity:0;
+    transition:opacity .15s ease;
+  }
+  .card:hover{
+    border-color:var(--border-soft);
+    background:var(--panel-hover);
+    transform:translateY(-2px);
+  }
+  .card:hover::before{opacity:1;}
+
+  .card-top{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:14px;
+  }
+  .card-index{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--muted-dim);
+    letter-spacing:0.04em;
+  }
+  .card-dot{
+    width:7px;height:7px;border-radius:50%;
+    background:var(--teal);
+    box-shadow:0 0 0 3px var(--teal-dim);
+  }
+  .card-title{
+    font-family:'JetBrains Mono',monospace;
+    font-weight:600;
+    font-size:15.5px;
+    line-height:1.4;
+    margin:0 0 10px;
+    color:var(--text);
+    word-break:break-word;
+  }
+  .card-url{
+    font-size:12px;
+    color:var(--muted-dim);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    margin-bottom:2px;
+  }
+  .card-date{
+    font-size:11px;
+    color:var(--muted-dim);
+    font-family:'JetBrains Mono',monospace;
+  }
+  .card-footer{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-top:14px;
+    padding-top:12px;
+    border-top:1px solid var(--border-soft);
+  }
+  .open-hint{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--teal);
+    opacity:0;
+    transform:translateX(-4px);
+    transition:opacity .15s ease, transform .15s ease;
+  }
+  .card:hover .open-hint{opacity:1;transform:translateX(0);}
+
+  .delete-btn{
+    position:absolute;
+    top:12px;right:12px;
+    width:24px;height:24px;
+    border-radius:6px;
+    border:1px solid var(--border);
+    background:#0d1526;
+    color:var(--muted);
+    display:flex;align-items:center;justify-content:center;
+    opacity:0;
+    transition:opacity .15s ease, color .15s ease, border-color .15s ease;
+    cursor:pointer;
+    z-index:2;
+  }
+  .card:hover .delete-btn{opacity:1;}
+  .delete-btn:hover{color:#e5877a;border-color:#e5877a;}
+
+  /* ---------- Empty state ---------- */
+  .empty{
+    border:1px dashed var(--border);
+    border-radius:12px;
+    padding:56px 24px;
+    text-align:center;
+    color:var(--muted);
+  }
+  .empty-icon{
+    width:36px;height:36px;
+    margin:0 auto 16px;
+    color:var(--muted-dim);
+  }
+  .empty h3{
+    font-family:'JetBrains Mono',monospace;
+    font-size:15px;
+    color:var(--text);
+    margin:0 0 8px;
+  }
+  .empty p{font-size:13.5px;margin:0;color:var(--muted-dim);}
+
+  .no-results{
+    text-align:center;
+    padding:40px 20px;
+    color:var(--muted-dim);
+    font-size:13.5px;
+  }
+
+  /* ---------- Toast ---------- */
+  .toast{
+    position:fixed;
+    bottom:24px;left:50%;
+    transform:translateX(-50%) translateY(20px);
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text);
+    font-size:13px;
+    padding:11px 18px;
+    border-radius:8px;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s ease, transform .2s ease;
+    box-shadow:0 8px 24px rgba(0,0,0,0.4);
+    font-family:'JetBrains Mono',monospace;
+    z-index:50;
+  }
+  .toast.show{
+    opacity:1;
+    transform:translateX(-50%) translateY(0);
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none !important; transition:none !important;}
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="eyebrow">Study Archive</div>
+  <h1>System Design Hub</h1>
+  <p class="subtitle">One place to keep every <strong>system design artifact</strong> you've built with Claude. This page is just a plain list of links — to add one for good, ask Claude to drop it into the file.</p>
+
+  <div class="add-panel">
+    <div class="add-row">
+      <div class="field">
+        <label for="urlInput">Artifact link</label>
+        <input type="url" id="urlInput" placeholder="https://claude.ai/public/artifacts/..." autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="titleInput">Title (optional)</label>
+        <input type="text" id="titleInput" placeholder="Derived from link if left blank" autocomplete="off">
+      </div>
+      <button class="btn-add" id="addBtn">
+        <span id="addBtnLabel">Add to hub</span>
+      </button>
+    </div>
+    <div class="helper-text" id="helperText">Preview a card here, then ask Claude to bake it into the file so it sticks around.</div>
+  </div>
+
+  <div class="toolbar">
+    <div class="count" id="countText"><strong>0</strong> artifacts saved</div>
+    <div class="search-wrap">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="7"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input type="text" id="searchInput" placeholder="Search your artifacts...">
+    </div>
+  </div>
+
+  <div id="gridArea"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  const urlInput = document.getElementById('urlInput');
+  const titleInput = document.getElementById('titleInput');
+  const addBtn = document.getElementById('addBtn');
+  const addBtnLabel = document.getElementById('addBtnLabel');
+  const helperText = document.getElementById('helperText');
+  const gridArea = document.getElementById('gridArea');
+  const countText = document.getElementById('countText');
+  const searchInput = document.getElementById('searchInput');
+  const toast = document.getElementById('toast');
+
+  // The hub's artifact list lives right here in the file — no database,
+  // no external storage, nothing that can fail. To add an artifact
+  // permanently, ask Claude to add an entry to this array and re-save
+  // the file. The "Add to hub" form below is for previewing a card
+  // during this session; it resets if you close or reload the page.
+  let artifacts = [
+    {
+      id: 'seed-1',
+      title: 'System Design Pillars',
+      url: 'https://claude.ai/public/artifacts/30ca5115-7d48-49e8-a371-f7dd255200a0',
+      addedAt: new Date('2026-08-19').getTime()
+    }
+  ];
+  let loaded = true;
+
+  function showToast(msg){
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2200);
+  }
+
+  function setHelper(msg, type){
+    helperText.textContent = msg || '';
+    helperText.className = 'helper-text' + (type ? ' ' + type : '');
+  }
+
+  function clearFieldWarnings(){
+    urlInput.classList.remove('field-warn');
+    titleInput.classList.remove('field-warn');
+  }
+
+  function formatDate(ts){
+    const d = new Date(ts);
+    return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+  }
+
+  function hostAndPath(url){
+    try{
+      const u = new URL(url);
+      let p = u.hostname.replace('www.','') + u.pathname;
+      if (p.length > 46) p = p.slice(0, 43) + '...';
+      return p;
+    }catch(e){
+      return url;
+    }
+  }
+
+  function isValidUrl(str){
+    try{
+      const u = new URL(str);
+      return u.protocol === 'http:' || u.protocol === 'https:';
+    }catch(e){
+      return false;
+    }
+  }
+
+  function render(){
+    const query = searchInput.value.trim().toLowerCase();
+    const list = query
+      ? artifacts.filter(a => a.title.toLowerCase().includes(query) || a.url.toLowerCase().includes(query))
+      : artifacts;
+
+    countText.innerHTML = '<strong>' + artifacts.length + '</strong> artifact' + (artifacts.length === 1 ? '' : 's') + ' saved';
+
+    if (!loaded){
+      gridArea.innerHTML = '';
+      return;
+    }
+
+    if (artifacts.length === 0){
+      gridArea.innerHTML =
+        '<div class="empty">' +
+          '<svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
+            '<rect x="3" y="3" width="7" height="7" rx="1.5"></rect>' +
+            '<rect x="14" y="3" width="7" height="7" rx="1.5"></rect>' +
+            '<rect x="3" y="14" width="7" height="7" rx="1.5"></rect>' +
+            '<line x1="14" y1="7" x2="21" y2="7"></line>' +
+            '<line x1="17.5" y1="3" x2="17.5" y2="11"></line>' +
+            '<line x1="6.5" y1="10" x2="6.5" y2="14"></line>' +
+          '</svg>' +
+          '<h3>No artifacts yet</h3>' +
+          '<p>Paste a link above to add your first one.</p>' +
+        '</div>';
+      return;
+    }
+
+    if (list.length === 0){
+      gridArea.innerHTML = '<div class="no-results">No artifacts match "' + escapeHtml(searchInput.value.trim()) + '"</div>';
+      return;
+    }
+
+    const sorted = [...list].sort((a,b) => b.addedAt - a.addedAt);
+
+    gridArea.innerHTML = '<div class="grid">' +
+      sorted.map((a, i) => {
+        const idx = artifacts.length - artifacts.findIndex(x => x.id === a.id);
+        return (
+        '<a class="card" href="' + escapeAttr(a.url) + '" target="_blank" rel="noopener noreferrer" data-id="' + escapeAttr(a.id) + '">' +
+          '<button class="delete-btn" data-delete="' + escapeAttr(a.id) + '" title="Remove" aria-label="Remove artifact">' +
+            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>' +
+          '</button>' +
+          '<div class="card-top">' +
+            '<span class="card-index">N' + String(idx).padStart(2,'0') + '</span>' +
+            '<span class="card-dot"></span>' +
+          '</div>' +
+          '<div class="card-title">' + escapeHtml(a.title) + '</div>' +
+          '<div class="card-url">' + escapeHtml(hostAndPath(a.url)) + '</div>' +
+          '<div class="card-footer">' +
+            '<span class="card-date">' + formatDate(a.addedAt) + '</span>' +
+            '<span class="open-hint">Open →</span>' +
+          '</div>' +
+        '</a>'
+        );
+      }).join('') +
+    '</div>';
+
+    gridArea.querySelectorAll('[data-delete]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        removeArtifact(btn.getAttribute('data-delete'));
+      });
+    });
+  }
+
+  function escapeHtml(str){
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+  function escapeAttr(str){
+    return escapeHtml(str).replace(/"/g,'&quot;');
+  }
+
+  function removeArtifact(id){
+    const removed = artifacts.find(a => a.id === id);
+    artifacts = artifacts.filter(a => a.id !== id);
+    render();
+    if (removed) showToast('Removed "' + removed.title + '" (this session only)');
+  }
+
+  function titleFromUrl(url){
+    try{
+      const u = new URL(url);
+      const parts = u.pathname.split('/').filter(Boolean);
+      const last = parts[parts.length - 1] || u.hostname;
+      const cleaned = last.replace(/[-_]+/g,' ').replace(/\b[a-f0-9]{6,}\b/gi,'').trim();
+      return cleaned ? cleaned.replace(/\b\w/g, c => c.toUpperCase()) : 'Untitled artifact';
+    }catch(e){
+      return 'Untitled artifact';
+    }
+  }
+
+  function handleAdd(){
+    clearFieldWarnings();
+    const url = urlInput.value.trim();
+    let title = titleInput.value.trim();
+
+    if (!url){
+      setHelper('Paste an artifact link to get started.', 'warn');
+      urlInput.classList.add('field-warn');
+      urlInput.focus();
+      return;
+    }
+    if (!isValidUrl(url)){
+      setHelper('That doesn\'t look like a valid link — check it and try again.', 'error');
+      urlInput.classList.add('field-warn');
+      urlInput.focus();
+      return;
+    }
+
+    const duplicate = artifacts.find(a => a.url === url);
+    if (duplicate){
+      setHelper('This artifact is already in your hub.', 'warn');
+      const existingCard = gridArea.querySelector('[data-id="' + CSS.escape(duplicate.id) + '"]');
+      if (existingCard){
+        existingCard.scrollIntoView({ behavior:'smooth', block:'center' });
+        existingCard.style.borderColor = 'var(--teal)';
+        setTimeout(() => { existingCard.style.borderColor = ''; }, 900);
+      }
+      return;
+    }
+
+    if (!title){
+      title = titleFromUrl(url);
+    }
+
+    const entry = {
+      id: 'a-' + Date.now() + '-' + Math.random().toString(36).slice(2,8),
+      title: title,
+      url: url,
+      addedAt: Date.now()
+    };
+
+    artifacts.push(entry);
+    render();
+
+    urlInput.value = '';
+    titleInput.value = '';
+    setHelper('Added for this session. To keep it permanently, ask Claude to add it to the hub file.', '');
+    showToast('Card added');
+  }
+
+  addBtn.addEventListener('click', handleAdd);
+  [urlInput, titleInput].forEach(el => {
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter'){
+        e.preventDefault();
+        handleAdd();
+      }
+    });
+    el.addEventListener('input', () => {
+      el.classList.remove('field-warn');
+    });
+  });
+
+  searchInput.addEventListener('input', render);
+
+  render();
+})();
+</script>
+
+</body>
+</html>
