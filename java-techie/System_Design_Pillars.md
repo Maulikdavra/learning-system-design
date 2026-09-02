@@ -1,4 +1,4 @@
-# The 6 Pillars of System Design
+# System Design Pillars
 
 *Interview-ready reference guide*
 
@@ -6,7 +6,7 @@
 
 ## Why These Concepts Matter
 
-Every scalable system — Netflix, Amazon, Uber, Swiggy, Instagram — is built on the same six foundational concepts. Before you can design any real-world architecture, you need to speak fluently about:
+Every scalable system — Netflix, Amazon, Uber, Swiggy, Instagram — is built on the same foundational concepts. Before you can design any real-world architecture, you need to speak fluently about:
 
 1. **Scalability**
 2. **Latency**
@@ -14,8 +14,10 @@ Every scalable system — Netflix, Amazon, Uber, Swiggy, Instagram — is built 
 4. **Bottleneck**
 5. **Availability**
 6. **Fault Tolerance**
+7. **Consistent Hashing**
+8. **CAP Theorem**
 
-These aren't independent ideas — they're deeply connected. A system that scales but has high latency isn't good enough. A system that's fast but unavailable during peak load fails the user. Understanding how these six trade off against each other is the actual skill being tested in a system design interview.
+These aren't independent ideas — they're deeply connected. A system that scales but has high latency isn't good enough. A system that's fast but unavailable during peak load fails the user. Understanding how these trade off against each other is the actual skill being tested in a system design interview.
 
 ```mermaid
 graph TD
@@ -369,7 +371,207 @@ sequenceDiagram
 
 ---
 
-## Bringing It All Together — The India vs. Pakistan Match Example
+## 7. Consistent Hashing
+
+**Definition:** A way of assigning keys (cache entries, shards, users) to nodes using a fixed circular hash space, so that when a node is added or removed, only a small slice of keys move — instead of almost everything remapping at once.
+
+### The Problem It Solves: Modulo Hashing Falls Apart
+
+The naive approach is `node = hash(key) % number_of_nodes`. This works fine until the node count changes.
+
+```mermaid
+graph LR
+    K["hash(key) % 5"]:::box --> N1[Owner: Node 2]:::ok
+    K2["hash(key) % 6"]:::warn --> N2[Owner: Node 5]:::warn
+    K -.same key, node count changes.-> K2
+    classDef box fill:#ffffff,stroke:#4a5568,stroke-width:1.5px,color:#1a202c
+    classDef ok fill:#f0fff4,stroke:#2f855a,stroke-width:1.5px,color:#1a202c
+    classDef warn fill:#fff5f5,stroke:#c53030,stroke-width:1.5px,color:#1a202c
+```
+
+Go from 5 nodes to 6, and the formula for nearly every key changes — not because the data changed, but because the *divisor* changed. For a cache, that's a cache-miss storm hitting your database all at once. For a storage system, it's a massive, unplanned data migration triggered by adding a single box.
+
+### How Consistent Hashing Works: The Ring
+
+Both nodes and keys are hashed onto the *same* fixed circular space (`0` to `2^64 - 1`, wrapping back to `0`). A key belongs to the first node found walking **clockwise** from the key's position.
+
+```mermaid
+graph LR
+    S1[Node S1]:::box --> K["Key: user:123"]:::key
+    K -->|walk clockwise → owner| S2[Node S2]:::owner
+    S2 --> S3[Node S3]:::box
+    S3 --> S4[Node S4]:::box
+    S4 --> S1
+    classDef box fill:#ffffff,stroke:#4a5568,stroke-width:1.5px,color:#1a202c
+    classDef key fill:#fff9f0,stroke:#c08a2e,stroke-width:1.5px,color:#1a202c
+    classDef owner fill:#e6f0ff,stroke:#2b6cb0,stroke-width:1.5px,color:#1a202c
+```
+
+### Adding a Node: Only Local Keys Move
+
+When `S5` joins between `S1` and `S2`, it claims the range up to itself. Only keys that fell in that slice move — everything owned by `S3` and `S4` is untouched.
+
+```mermaid
+graph LR
+    S1[Node S1]:::box --> S5["New Node S5"]:::new
+    S5 -->|"keys (S1,S5] move here"| S2[Node S2]:::box
+    S2 --> S3[Node S3]:::box
+    S3 --> S4[Node S4]:::box
+    S4 --> S1
+    classDef box fill:#ffffff,stroke:#4a5568,stroke-width:1.5px,color:#1a202c
+    classDef new fill:#f0fff4,stroke:#2f855a,stroke-width:1.5px,color:#1a202c
+```
+
+With `N` evenly balanced nodes, adding one moves roughly `1/(N+1)` of the keys — not the whole keyspace. Removing a node works the same way in reverse: only its range moves, to its clockwise successor.
+
+### Virtual Nodes: Fixing Uneven Ranges
+
+Placing each physical node at a single ring position produces lumpy, uneven ranges — and if that node fails, its *entire* range dumps onto one unlucky successor. **Virtual nodes** place each physical node at many points on the ring instead.
+
+```mermaid
+graph TD
+    P["Physical Node: cache-a-17"]:::box
+    P --> V1[vnode 1]:::vnode
+    P --> V2[vnode 2]:::vnode
+    P --> V3[vnode 3]:::vnode
+    P --> V4[vnode ...N]:::vnode
+    classDef box fill:#ffffff,stroke:#4a5568,stroke-width:1.5px,color:#1a202c
+    classDef vnode fill:#e6f0ff,stroke:#2b6cb0,stroke-width:1.5px,color:#1a202c
+```
+
+This gets you: better balance (many small ranges average out better than a few large ones), smoother failures (a dead node's ranges scatter across *several* successors instead of one), and weighted capacity (a bigger box just gets more virtual nodes).
+
+### Consistent Hashing vs. Alternatives
+
+| Technique | Best Fit | Note |
+|---|---|---|
+| **Consistent hashing ring** | Caches, storage shards, stateful routing | The default choice; well understood, supports virtual nodes |
+| **Rendezvous hashing** | Picking one or more owners from a node set | No ring structure needed; simpler for smaller clusters |
+| **Jump consistent hash** | Mapping a key to a numbered bucket fast | Great when buckets are append-only and numbered |
+| **Fixed partitions** | Logs, queues, databases with partition movement | Decouples hashing from physical node membership entirely |
+
+### Enterprise Example
+Amazon's **Dynamo** whitepaper — the design that later became the basis for DynamoDB — popularized consistent hashing with virtual nodes specifically so Amazon's shopping cart infrastructure could add or remove capacity without a full data reshuffle across the fleet. Memcached client libraries (the **Ketama** algorithm) apply the same idea to distribute cache keys across a pool of cache servers at companies like Twitter and Facebook-scale caching layers.
+
+> **Trade-off:** Consistent hashing solves *ownership stability*, not hot-key overload — if one key is extremely popular, its owning node can still get hammered even though key distribution is "balanced." That needs a separate mitigation: request coalescing, local caching, or replicating just that hot key.
+
+### 🎯 Most Asked Interview Questions — Consistent Hashing
+
+**Q1: Why does modulo hashing break when you add or remove a node?**
+*A: Because the node count is part of the formula — `hash(key) % N` — so changing N changes the result for almost every key, even though the underlying data hasn't changed at all. It's not a partial failure, it's a near-total remap, which for a cache means a miss storm and for a database means a mass migration, both triggered by something as small as adding one box.*
+
+**Q2: How does consistent hashing limit the blast radius of adding a node?**
+*A: Both nodes and keys live on the same fixed ring, and a key is always owned by the next node clockwise. When a new node joins, it only claims the slice of the ring between itself and its predecessor — so only the keys in that specific slice move, roughly `1/(N+1)` of the total, and everyone else's ownership is untouched.*
+
+**Q3: What problem do virtual nodes solve, and what's the cost?**
+*A: A single ring position per physical node gives you uneven, lumpy ranges, and if that node dies, its entire slice dumps onto one successor — that's a thundering-herd risk. Virtual nodes spread each physical node across many ring positions, which balances load better and scatters failure impact across several successors instead of one. The cost is more bookkeeping — more ring entries to track and rebalance, and you have to tune how many vnodes per physical node.*
+
+**Q4: How would you add replication on top of a consistent hashing ring?**
+*A: I'd hash the key to find the primary — the first node clockwise — then keep walking clockwise to pick the next N-1 distinct physical nodes as replicas. In production I'd also add placement constraints so you're not putting two replicas on the same rack or availability zone, otherwise a single rack failure could take out every copy of that data at once.*
+
+**Q5: Is consistent hashing a substitute for a full storage system?**
+*A: No — it's placement logic, not the whole system. It tells you which node *should* own a key, but it doesn't move the actual data, handle replication, resolve conflicts, or guarantee durability on its own. A real storage system still needs background migration, checksums, and repair jobs layered on top.*
+
+**Q6: When would you NOT use consistent hashing?**
+*A: When requests are stateless and any node can serve any request — there's no ownership to preserve, so a plain load balancer is simpler and more flexible. I'd reach for consistent hashing specifically when I need stable, sticky ownership: caches, shards, or workers tied to a particular key.*
+
+---
+
+## 8. CAP Theorem
+
+**Definition:** When a distributed system's nodes can't communicate (a network partition), it must choose between returning a possibly-stale answer (**availability**) or refusing/delaying the request until it can guarantee freshness (**consistency**). Partition tolerance itself isn't optional — networks fail — so the real choice CAP describes is C vs. A *during* a partition, not a permanent, all-the-time label on a database.
+
+### What CAP Actually Means
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant A as Region A (Primary)
+    participant B as Region B (Replica)
+    Client->>A: Write price = $10
+    A-->>B: Replicate update
+    B-->>A: Ack
+    A-->>Client: Success
+    Note over A,B: Healthy network — both C and A hold
+```
+
+Now the network between regions breaks mid-flight:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant A as Region A
+    participant B as Region B
+    Note over A,B: 🔌 Partition — A and B can't talk
+    Client->>B: Read product price
+    alt Choose Consistency (CP)
+        B-->>Client: Error — can't confirm this is fresh
+    else Choose Availability (AP)
+        B-->>Client: Last known price (might be stale)
+    end
+```
+
+There's no clever protocol that lets Region B know about a write it's physically cut off from. It has exactly two options, and CAP is just naming that fork in the road.
+
+### The Three Letters, Precisely
+
+- **Consistency (CAP sense):** every read reflects the latest completed write, or the system errors instead of returning stale data. This is closer to *linearizability* than to ACID "consistency."
+- **Availability (CAP sense):** every request to a non-failing node gets a non-error response. Note this says nothing about freshness, speed, or uptime SLOs — a system can be CAP-available and still return year-old data.
+- **Partition tolerance:** the system has *defined* behavior when nodes can't talk to each other. You don't get to opt out of this for a real distributed system — you only get to choose what happens when it occurs.
+
+### Choosing CP or AP — Start From the Invariant, Not the Label
+
+```mermaid
+graph TD
+    Q{"Can this operation cause real damage if it's wrong?"}:::q
+    Q -->|"Yes — payments, inventory, locks, permission checks"| CP["Choose CP:<br/>reject/delay until safe"]:::cp
+    Q -->|"No — feeds, counters, search, catalog browsing"| AP["Choose AP:<br/>serve it, reconcile later"]:::ap
+    classDef q fill:#ffffff,stroke:#4a5568,stroke-width:1.5px,color:#1a202c
+    classDef cp fill:#fff5f5,stroke:#c53030,stroke-width:1.5px,color:#1a202c
+    classDef ap fill:#f0fff4,stroke:#2f855a,stroke-width:1.5px,color:#1a202c
+```
+
+| Area | Typical Choice | Why |
+|---|---|---|
+| Payment ledger / billing | CP | A wrong write is worse than a temporarily rejected request |
+| Inventory reservation (last item in stock) | CP | Two partitioned regions must not both sell the same unit |
+| API key / permission revocation | CP on the enforcement path | A stale "still valid" check is a security bug, not just an inconvenience |
+| Shopping cart | AP with merge logic | Accepting both partitions' updates and merging is better than rejecting |
+| Product catalog browsing, search index | AP / eventual | Short staleness is invisible to most users |
+| Likes, views, reaction counters | AP | Exact real-time accuracy isn't worth the coordination cost |
+
+**CA (Consistency + Availability, no partition tolerance)** only really exists for a single-node system, or while the network happens to be healthy. Once nodes can be separated — which is a fact of life for any real distributed system — "we're just CA" usually means "we haven't defined what happens during a partition," not that we've somehow escaped the trade-off.
+
+### Beyond CAP: PACELC
+
+CAP only covers what happens *during* a partition — and partitions are rare. Most of the time the real, everyday trade-off is consistency vs. **latency**, which is what PACELC adds: *if* there's a **P**artition, choose **A**vailability or **C**onsistency; **e**lse, choose **L**atency or **C**onsistency. A cross-region quorum read is safer but slower than reading the nearest local replica — that trade-off exists on a perfectly healthy network, every single day, not just during outages.
+
+### Enterprise Example
+**Amazon DynamoDB** defaults reads to eventual consistency (AP-leaning) for speed, but explicitly offers a "strongly consistent read" option when the caller needs the CP guarantee instead — making the CAP choice a per-request decision rather than a database-wide label. **Google Cloud Spanner** takes the opposite default: it uses synchronized atomic clocks (TrueTime) to offer strong, CP-style consistency across regions globally, accepting extra write latency as the cost of that guarantee.
+
+> **Trade-off:** Choosing CP doesn't mean "always unavailable," and choosing AP doesn't mean "always wrong" — it means during the rare window of an actual partition, CP sometimes says no and AP sometimes says something slightly stale. The engineering work is deciding, invariant by invariant, which behavior you can live with.
+
+### 🎯 Most Asked Interview Questions — CAP Theorem
+
+**Q1: What does CAP actually say — and what's the common misreading?**
+*A: The common misreading is "pick any two of three, permanently" — as if a database wears one label forever. What it actually says is narrower: when nodes can't communicate, you have to choose between rejecting an operation (consistency) or serving it anyway with possibly stale data (availability) — for the operations affected by that partition, not the whole system, and not all the time.*
+
+**Q2: Why is partition tolerance "not optional"?**
+*A: Because networks fail — links saturate, packets drop, regions become unreachable — and that's true whether or not your architecture accounts for it. You don't get to choose whether partitions happen; you only get to choose what your system does when one does. If you haven't defined that behavior, you haven't avoided the trade-off, you've just left it undefined and it'll surprise you in production.*
+
+**Q3: How is CAP consistency different from ACID consistency?**
+*A: ACID consistency means a transaction moves the database from one valid state to another according to its constraints. CAP consistency is about time — whether a read reflects the most recent completed write, closer to what's formally called linearizability. They're both called "consistency" but they're answering different questions, so I'm careful to clarify which one I mean in an interview.*
+
+**Q4: Give a real example of a CP choice and an AP choice, and explain why each is right for that case.**
+*A: Inventory reservation for the last unit of a product is a CP case — if two partitioned regions both accept the sale, you've oversold, so it's better to make one of them fail the reservation. A shopping cart is the opposite — if a user adds items from two devices while replicas are split, merging both sets of additions when the partition heals is a fine outcome, and rejecting either add would just annoy the user for no real benefit.*
+
+**Q5: What's PACELC, and why does it matter even when there's no partition?**
+*A: PACELC extends CAP by pointing out that CAP only describes the rare case of an actual partition — but even on a perfectly healthy network, there's a everyday trade-off between consistency and latency. A quorum read across regions is safer but slower than reading a local replica. I bring this up in interviews because CAP alone makes it sound like the trade-off only matters during outages, and that's misleading — it's a daily latency-vs-correctness decision.*
+
+**Q6: How would you decide whether a new feature's data should be CP or AP?**
+*A: I'd start from the invariant, not the label — ask "what must never happen" versus "what can be temporarily stale." Double-charging a customer or overselling the last item in stock must never happen, so that's CP. A view counter or a recommendation list being a few seconds stale is invisible to the user, so that's AP. I try to avoid stamping an entire service with one acronym, because in practice different tables or endpoints in the same system often make different choices.*
+
+---
 
 Imagine a cricket World Cup final between India and Pakistan. Millions of users open a food delivery app simultaneously.
 
@@ -398,9 +600,12 @@ None of these six pillars work in isolation. A system can be scalable but still 
 | **Bottleneck** | The one component limiting the whole system | Profiling, distributed tracing, decoupling with queues |
 | **Availability** | % of time system is up and reachable | Redundancy, multi-region, health checks |
 | **Fault Tolerance** | System keeps working despite failures | Replication, circuit breakers, chaos engineering |
+| **Consistent Hashing** | Stable key-to-node ownership as nodes change | Hash ring, virtual nodes, clockwise ownership |
+| **CAP Theorem** | During a partition, pick consistency or availability | Quorum reads/writes, per-operation CP/AP choice, PACELC |
 
 ### Common Interview Follow-Up Questions
 - "How would you improve throughput without sacrificing latency?" → batching vs. real-time trade-off
 - "What's the difference between availability and fault tolerance?" → outcome vs. mechanism
 - "How do you find a bottleneck in production?" → tracing, APM, load testing
 - "CAP theorem — how does it relate to scalability?" → horizontal scaling forces you to choose consistency vs. availability during a partition
+- "How does consistent hashing relate to CAP?" → it's placement logic that sits underneath either a CP or AP system — the ring decides *who* owns a key; CAP decides what that owner does when it's cut off from its replicas
